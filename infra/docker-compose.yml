@@ -1,0 +1,136 @@
+version: '3.8'
+
+services:
+  # Основная нода TorrentNode
+  node:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    image: torrentnode:latest
+    environment:
+      - NODE_NAME=node_${NODE_NUMBER:-1}
+      - NODE_PORT=8888
+      - LOG_LEVEL=INFO
+      - DHT_ENABLED=true
+      - BOOTSTRAP_NODES=${BOOTSTRAP_NODES:-}
+      - MAX_PEERS=50
+      - ENABLE_ENCRYPTION=true
+      - SANDBOX_ENABLED=true
+      - INITIAL_BALANCE=100
+      - TASK_REWARD=10
+    volumes:
+      - node-data:/app/data
+      - torrent-data:/app/torrents
+      - ./logs:/app/logs
+    ports:
+      - "${NODE_PORT:-8888}:8888"
+    networks:
+      - torrentnode-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Ganache для локального тестирования Ethereum
+  ganache:
+    image: trufflesuite/ganache:latest
+    ports:
+      - "8545:8545"
+    environment:
+      - DETERMINISTIC=true
+      - ACCOUNTS=10
+      - ACCOUNT_KEYS_PATH=/keys.json
+    volumes:
+      - ganache-data:/ganache_data
+    networks:
+      - torrentnode-net
+    command: >
+      --database.dbPath=/ganache_data
+      --accounts 10
+      --accounts.mnemonic "candy maple cake sugar pudding cream honey rich smooth crumble sweet treat"
+      --chain.chainId 1337
+      --chain.networkId 1337
+      --miner.blockGasLimit 10000000
+    profiles:
+      - ethereum
+
+  # Redis для кеширования (опционально)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - torrentnode-net
+    command: redis-server --appendonly yes
+    profiles:
+      - cache
+
+  # Prometheus для мониторинга
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - torrentnode-net
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    profiles:
+      - monitoring
+
+  # Grafana для визуализации
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - torrentnode-net
+    depends_on:
+      - prometheus
+    profiles:
+      - monitoring
+
+  # IPFS для распределенного хранения (опционально)
+  ipfs:
+    image: ipfs/go-ipfs:latest
+    ports:
+      - "4001:4001"  # Swarm
+      - "5001:5001"  # API
+      - "8080:8080"  # Gateway
+    volumes:
+      - ipfs-data:/data/ipfs
+    networks:
+      - torrentnode-net
+    profiles:
+      - storage
+
+networks:
+  torrentnode-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  node-data:
+  torrent-data:
+  ganache-data:
+  redis-data:
+  prometheus-data:
+  grafana-data:
+  ipfs-data: 
