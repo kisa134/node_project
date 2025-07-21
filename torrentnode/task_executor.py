@@ -4,14 +4,11 @@
 Реализует песочницу для выполнения кода задач с ограничениями по ресурсам
 и безопасности.
 """
-
 import asyncio
 import json
 import multiprocessing
 import os
 import platform
-import resource
-import signal
 import subprocess
 import sys
 import tempfile
@@ -26,6 +23,15 @@ from typing import Any, Dict, List, Optional, Union
 import psutil
 import structlog
 from pydantic import BaseModel, Field, validator
+
+# Модуль resource недоступен в Windows, поэтому делаем условный импорт
+try:
+    import resource
+except ImportError:
+    resource = None
+
+from .rewards import RewardSystem
+from .utils import calculate_file_hash
 
 logger = structlog.get_logger()
 
@@ -78,73 +84,65 @@ class TaskResult:
     cpu_time: float = 0.0
 
 
-class SandboxExecutor:
-    """Исполнитель кода в изолированной среде"""
+def _sandboxed_execution(func, args, timeout, max_memory):
+    """
+    Выполняет функцию в отдельном процессе с ограничениями.
+    Эта функция должна быть на верхнем уровне модуля для совместимости с multiprocessing.
+    """
     
-    def __init__(self):
-        self.executor = ProcessPoolExecutor(max_workers=multiprocessing.cpu_count())
-    
-    def execute_in_sandbox(self, func, args, timeout: int, max_memory: int):
-        """Выполнение функции в отдельном процессе с ограничениями"""
-        future = self.executor.submit(self._sandboxed_execution, func, args, max_memory)
-        
+    # Установка лимитов только на Unix-системах, где доступен модуль resource
+    if resource:
         try:
-            result = future.result(timeout=timeout)
-            return result
-        except TimeoutError:
-            future.cancel()
-            raise TimeoutError(f"Task execution exceeded timeout of {timeout}s")
-        except Exception as e:
-            raise Exception(f"Sandbox execution failed: {str(e)}")
-    
-    @staticmethod
-    def _sandboxed_execution(func, args, max_memory: int):
-        """Выполнение с ограничениями ресурсов"""
-        # Установка лимитов только на Unix-системах
-        if platform.system() != 'Windows':
-            # Ограничение памяти
-            memory_limit = max_memory * 1024 * 1024  # MB to bytes
+            # Ограничение памяти (в байтах)
+            memory_limit = max_memory * 1024 * 1024
             resource.setrlimit(resource.RLIMIT_AS, (memory_limit, memory_limit))
             
-            # Ограничение CPU времени
-            resource.setrlimit(resource.RLIMIT_CPU, (300, 300))  # 5 минут
+            # Ограничение процессорного времени (в секундах)
+            resource.setrlimit(resource.RLIMIT_CPU, (timeout, timeout))
             
-            # Ограничение размера файлов
-            resource.setrlimit(resource.RLIMIT_FSIZE, (10 * 1024 * 1024, 10 * 1024 * 1024))  # 10MB
+            # Ограничение размера создаваемых файлов
+            resource.setrlimit(resource.RLIMIT_FSIZE, (10 * 1024 * 1024, 10 * 1024 * 1024)) # 10MB
             
-            # Ограничение количества процессов
+            # Ограничение количества дочерних процессов
             resource.setrlimit(resource.RLIMIT_NPROC, (10, 10))
-        
-        # Выполнение функции
-        start_time = time.time()
-        process = psutil.Process()
-        
-        try:
-            result = func(*args)
-            execution_time = time.time() - start_time
-            
-            # Получение статистики использования ресурсов
-            memory_info = process.memory_info()
-            cpu_times = process.cpu_times()
-            
-            return {
-                'result': result,
-                'execution_time': execution_time,
-                'memory_used': memory_info.rss // (1024 * 1024),  # MB
-                'cpu_time': cpu_times.user + cpu_times.system
-            }
         except Exception as e:
-            return {
-                'error': str(e),
-                'execution_time': time.time() - start_time
-            }
+            # В случае ошибки просто логируем, но не прерываем выполнение
+            # т.к. на некоторых системах могут быть проблемы с установкой лимитов
+            # print(f"Warning: Could not set resource limits: {e}")
+            pass
+
+    start_time = time.time()
+    process = psutil.Process(os.getpid())
+    
+    try:
+        result_data = func(*args)
+        execution_time = time.time() - start_time
+        
+        memory_info = process.memory_info()
+        cpu_times = process.cpu_times()
+        
+        return {
+            'success': True,
+            'result': result_data,
+            'execution_time': execution_time,
+            'memory_used': memory_info.rss // (1024 * 1024),  # в MB
+            'cpu_time': cpu_times.user + cpu_times.system
+        }
+    except Exception as e:
+        execution_time = time.time() - start_time
+        return {
+            'success': False,
+            'error': str(e),
+            'execution_time': execution_time,
+        }
 
 
 class TaskExecutor:
     """Основной исполнитель задач"""
-    
+
     def __init__(self):
-        self.sandbox = SandboxExecutor()
+        # Используем ProcessPoolExecutor для запуска задач в отдельных процессах
+        self.executor = ProcessPoolExecutor(max_workers=multiprocessing.cpu_count())
         self.task_handlers = {
             TaskType.SUM: self._execute_sum,
             TaskType.MULTIPLY: self._execute_multiply,
@@ -156,63 +154,52 @@ class TaskExecutor:
             TaskType.TEXT_ANALYSIS: self._execute_text_analysis,
             TaskType.CUSTOM: self._execute_custom,
         }
-    
+
     async def execute(self, task: Task) -> TaskResult:
-        """Выполнение задачи"""
+        """Асинхронное выполнение задачи"""
         logger.info(f"Executing task: {task.id}, type: {task.type}")
         
-        if task.type not in self.task_handlers:
-            return TaskResult(
-                task_id=task.id,
-                success=False,
-                error=f"Unsupported task type: {task.type}"
-            )
-        
-        handler = self.task_handlers[task.type]
+        handler = self.task_handlers.get(task.type)
+        if not handler:
+            return TaskResult(task_id=task.id, success=False, error=f"Unsupported task type: {task.type}")
+
+        loop = asyncio.get_event_loop()
         
         try:
-            # Выполнение в event loop
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                self.sandbox.execute_in_sandbox,
+            future = self.executor.submit(
+                _sandboxed_execution,
                 handler,
                 (task.data,),
                 task.timeout,
                 task.max_memory
             )
             
-            if 'error' in result:
+            # Ждем результат с таймаутом
+            result_dict = await loop.run_in_executor(None, lambda: future.result(timeout=task.timeout))
+
+            if result_dict.get('success'):
                 return TaskResult(
                     task_id=task.id,
-                    success=False,
-                    error=result['error'],
-                    execution_time=result.get('execution_time', 0)
+                    success=True,
+                    result=result_dict.get('result'),
+                    execution_time=result_dict.get('execution_time', 0),
+                    memory_used=result_dict.get('memory_used', 0),
+                    cpu_time=result_dict.get('cpu_time', 0)
                 )
-            
-            return TaskResult(
-                task_id=task.id,
-                success=True,
-                result=result['result'],
-                execution_time=result['execution_time'],
-                memory_used=result.get('memory_used', 0),
-                cpu_time=result.get('cpu_time', 0)
-            )
-            
-        except TimeoutError as e:
-            return TaskResult(
-                task_id=task.id,
-                success=False,
-                error=str(e)
-            )
+            else:
+                 return TaskResult(
+                    task_id=task.id,
+                    success=False,
+                    error=result_dict.get('error'),
+                    execution_time=result_dict.get('execution_time', 0)
+                )
+
+        except TimeoutError:
+            return TaskResult(task_id=task.id, success=False, error=f"Task execution timed out after {task.timeout} seconds.")
         except Exception as e:
-            logger.error(f"Task execution failed: {e}")
-            return TaskResult(
-                task_id=task.id,
-                success=False,
-                error=str(e)
-            )
-    
+            logger.error("Task execution failed unexpectedly", exc_info=e)
+            return TaskResult(task_id=task.id, success=False, error=f"An unexpected error occurred: {e}")
+
     @staticmethod
     def _execute_sum(data: List[Union[int, float]]) -> Union[int, float]:
         """Суммирование чисел"""
@@ -281,8 +268,12 @@ class TaskExecutor:
         if not isinstance(data, dict) or 'a' not in data or 'b' not in data:
             raise ValueError("Data must contain matrices 'a' and 'b'")
         
-        import numpy as np
-        
+        # numpy может быть не установлен по умолчанию, импортируем внутри
+        try:
+            import numpy as np
+        except ImportError:
+            raise RuntimeError("Numpy is required for matrix multiplication. Please install it.")
+
         a = np.array(data['a'])
         b = np.array(data['b'])
         
@@ -305,7 +296,8 @@ class TaskExecutor:
         word_freq = {}
         for word in words:
             word_lower = word.lower().strip('.,!?;:"')
-            word_freq[word_lower] = word_freq.get(word_lower, 0) + 1
+            if word_lower:
+                word_freq[word_lower] = word_freq.get(word_lower, 0) + 1
         
         # Топ-10 слов
         top_words = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:10]
@@ -322,76 +314,61 @@ class TaskExecutor:
     @staticmethod
     def _execute_custom(data: Dict[str, Any]) -> Any:
         """Выполнение пользовательского кода (ограниченно)"""
-        # В реальной системе здесь была бы более сложная песочница
-        # Сейчас просто заглушка
-        raise NotImplementedError("Custom code execution is not yet implemented")
+        code = data.get("code")
+        if not code:
+            raise ValueError("No code provided for custom task")
 
-
-# Примеры задач для тестирования
-EXAMPLE_TASKS = [
-    Task(
-        type=TaskType.SUM,
-        data=[1, 2, 3, 4, 5],
-        reward=5.0
-    ),
-    Task(
-        type=TaskType.MULTIPLY,
-        data=[2, 3, 4, 5],
-        reward=5.0
-    ),
-    Task(
-        type=TaskType.SORT,
-        data=[5, 2, 8, 1, 9, 3],
-        reward=5.0
-    ),
-    Task(
-        type=TaskType.HASH,
-        data="Hello, TorrentNode Net!",
-        reward=3.0
-    ),
-    Task(
-        type=TaskType.FACTORIAL,
-        data=10,
-        reward=8.0
-    ),
-    Task(
-        type=TaskType.PRIME_CHECK,
-        data=97,
-        reward=10.0
-    ),
-    Task(
-        type=TaskType.MATRIX_MULTIPLY,
-        data={
-            'a': [[1, 2], [3, 4]],
-            'b': [[5, 6], [7, 8]]
-        },
-        reward=15.0
-    ),
-    Task(
-        type=TaskType.TEXT_ANALYSIS,
-        data="The quick brown fox jumps over the lazy dog. The dog was really lazy.",
-        reward=12.0
-    )
-]
+        # ОПАСНО! Это просто заглушка. В реальной системе нужна настоящая песочница.
+        # Например, с использованием Docker, gVisor, или WebAssembly.
+        # Ограничим доступные встроенные функции для минимальной безопасности.
+        restricted_globals = {
+            "__builtins__": {
+                "print": print, "len": len, "range": range, "sum": sum,
+                "abs": abs, "min": min, "max": max, "sorted": sorted,
+                "int": int, "float": float, "str": str, "list": list,
+                "dict": dict, "tuple": tuple, "set": set, "bool": bool,
+                "isinstance": isinstance,
+                "Exception": Exception,
+            },
+        }
+        
+        try:
+            # Выполняем код в ограниченном окружении
+            exec(code, restricted_globals)
+            # Пользовательский код должен вызвать функцию `main()` и вернуть результат
+            if "main" in restricted_globals:
+                return restricted_globals["main"]()
+            else:
+                raise RuntimeError("No `main` function found in the provided code.")
+        except Exception as e:
+            raise RuntimeError(f"Error executing custom code: {e}")
 
 
 async def main():
     """Пример использования TaskExecutor"""
     executor = TaskExecutor()
+    task = Task(
+        type=TaskType.SUM,
+        data=[1, 2, 3, 4, 5, 10, 20],
+        reward=5.0
+    )
     
-    for task in EXAMPLE_TASKS[:3]:  # Тестируем первые 3 задачи
-        print(f"\nExecuting task: {task.type}")
-        print(f"Data: {task.data}")
-        
-        result = await executor.execute(task)
-        
-        if result.success:
-            print(f"Result: {result.result}")
-            print(f"Execution time: {result.execution_time:.3f}s")
-            print(f"Memory used: {result.memory_used}MB")
-        else:
-            print(f"Error: {result.error}")
+    print(f"\nExecuting task: {task.type}")
+    print(f"Data: {task.data}")
+    
+    result = await executor.execute(task)
+    
+    if result.success:
+        print(f"Result: {result.result}")
+        print(f"Execution time: {result.execution_time:.4f}s")
+        print(f"Memory used: {result.memory_used}MB")
+        print(f"CPU time: {result.cpu_time:.4f}s")
+    else:
+        print(f"Error: {result.error}")
+        print(f"Execution time: {result.execution_time:.4f}s")
 
 
 if __name__ == "__main__":
+    # Для Windows необходимо это условие для корректной работы multiprocessing
+    multiprocessing.freeze_support()
     asyncio.run(main()) 

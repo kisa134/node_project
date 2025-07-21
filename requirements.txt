@@ -1,0 +1,11 @@
+libtorrent
+structlog
+pydantic
+aiofiles
+bencodepy
+psutil
+web3
+cryptography
+Pillow
+rich
+click 

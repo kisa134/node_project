@@ -1,3 +1,13 @@
+import os
+import sys
+
+# Add the bundled DLLs to the PATH
+dll_path = os.path.join(os.path.dirname(__file__), '..', 'dlls')
+if os.path.isdir(dll_path):
+    os.environ['PATH'] = dll_path + os.pathsep + os.environ['PATH']
+    if hasattr(os, 'add_dll_directory'):
+        os.add_dll_directory(dll_path)
+
 """
 TorrentNode Net - Децентрализованная P2P сеть для распределенных вычислений
 
@@ -12,22 +22,17 @@ __version__ = "0.1.0"
 __author__ = "TorrentNode Team"
 __license__ = "MIT"
 
+# Оставляем только самые важные импорты верхнего уровня,
+# чтобы избежать циклических зависимостей при инициализации.
+# Другие компоненты могут быть импортированы напрямую из модулей.
 from .node import Node, NodeConfig
-from .task_executor import TaskExecutor, Task, TaskResult
-from .rewards import RewardSystem, TokenBalance
-from .utils import generate_node_id, create_torrent, verify_hash
+from .task_executor import Task, TaskType
 
 __all__ = [
     "Node",
-    "NodeConfig", 
-    "TaskExecutor",
+    "NodeConfig",
     "Task",
-    "TaskResult",
-    "RewardSystem",
-    "TokenBalance",
-    "generate_node_id",
-    "create_torrent",
-    "verify_hash",
+    "TaskType",
 ]
 
 # Константы

@@ -11,6 +11,7 @@ import os
 import random
 import sqlite3
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -36,6 +37,20 @@ from .utils import generate_node_id, create_torrent, verify_hash, get_free_port
 logger = structlog.get_logger()
 console = Console()
 
+CHAT_SALT = b"torrentnode_global_chat"
+# This is a fixed seed to generate the same keypair for the global chat on all nodes
+CHAT_SEED = bytes.fromhex("e5a42201948432379d4653cb3775e53c945a0d4a8e2e6c4a6e87f5734563a1f7")
+
+# Стандартные DHT узлы для первоначального подключения
+DEFAULT_BOOTSTRAP_NODES = [
+    "router.utorrent.com:6881",
+    "router.bittorrent.com:6881",
+    "dht.transmissionbt.com:6881",
+    "dht.aelitis.com:6881",
+    "router.silotis.us:6881",
+    "dht.libtorrent.org:25401",
+]
+
 
 @dataclass
 class NodeConfig:
@@ -49,7 +64,7 @@ class NodeConfig:
     max_tasks: int = 5
     enable_dht: bool = True
     enable_encryption: bool = True
-    bootstrap_nodes: List[str] = field(default_factory=list)
+    bootstrap_nodes: List[str] = field(default_factory=lambda: DEFAULT_BOOTSTRAP_NODES)
     upload_rate_limit: int = 0  # 0 = unlimited
     download_rate_limit: int = 0
     log_level: str = "INFO"
@@ -75,8 +90,9 @@ class PeerInfo(BaseModel):
 class Node:
     """Основной класс ноды TorrentNode Net"""
     
-    def __init__(self, config: Optional[NodeConfig] = None):
+    def __init__(self, config: Optional[NodeConfig] = None, loop: Optional[asyncio.AbstractEventLoop] = None):
         self.config = config or NodeConfig()
+        self.loop = loop or asyncio.get_event_loop()
         self.node_id = generate_node_id()
         self.session: Optional[lt.session] = None
         self.peers: Dict[str, PeerInfo] = {}
@@ -84,8 +100,13 @@ class Node:
         self.task_executor = TaskExecutor()
         self.reward_system = RewardSystem(str(self.config.data_dir / "tokens.db"))
         self.running = False
+        self.background_tasks: List[asyncio.Task] = []
         self._setup_logging()
         self._setup_encryption()
+
+        # Очередь для чата
+        self.chat_queue = asyncio.Queue()
+        self.chat_history = deque(maxlen=100)
         
         # Статистика
         self.stats = {
@@ -170,29 +191,42 @@ class Node:
         self.reward_system.init_balance(self.node_id)
         
         # Запуск фоновых задач
-        tasks = [
-            asyncio.create_task(self._handle_alerts()),
-            asyncio.create_task(self._process_tasks()),
-            asyncio.create_task(self._maintain_peers()),
-            asyncio.create_task(self._report_stats()),
+        self.background_tasks = [
+            self.loop.create_task(self._handle_alerts()),
+            self.loop.create_task(self._process_tasks()),
+            self.loop.create_task(self._maintain_peers()),
+            self.loop.create_task(self._report_stats()),
         ]
         
         console.print(f"[green]✓ Node {self.node_id} started on port {self.config.port}[/green]")
         
         try:
-            await asyncio.gather(*tasks)
+            await asyncio.gather(*self.background_tasks)
         except asyncio.CancelledError:
-            logger.info("Node shutting down")
-        finally:
-            await self.stop()
+            logger.info("Node main task group was cancelled.")
     
     async def stop(self):
         """Остановка ноды"""
+        if not self.running:
+            return
+
+        logger.info("Stopping node background tasks...")
         self.running = False
+
+        for task in self.background_tasks:
+            task.cancel()
+            
+        if self.background_tasks:
+            await asyncio.gather(*self.background_tasks, return_exceptions=True)
+        
+        self.background_tasks = []
+
         if self.session:
             # Сохранение состояния
             self._save_state()
             self.session.pause()
+            logger.info("Libtorrent session paused.")
+            
         logger.info("Node stopped", node_id=self.node_id)
     
     async def _handle_alerts(self):
@@ -483,6 +517,101 @@ class Node:
     def get_balance(self) -> float:
         """Получение баланса токенов"""
         return self.reward_system.get_balance(self.node_id)
+
+    def get_status(self):
+        if not self.running or not self.session:
+            return {
+                "node_id": self.node_id,
+                "dht_nodes": 0,
+                "num_peers": 0,
+                "listening_port": 0,
+                "status": "stopped",
+                "peers": [],
+            }
+        
+        s = self.session.status()
+        
+        peers_list = []
+        for peer_id, peer_info in self.peers.items():
+            peers_list.append({
+                "id": peer_id,
+                "address": f"{peer_info.address}:{peer_info.port}",
+            })
+
+        return {
+            "node_id": self.node_id,
+            "dht_nodes": s.dht_nodes,
+            "num_peers": s.num_peers,
+            "listening_port": self.session.listen_port(),
+            "status": "running",
+            "peers": peers_list,
+        }
+
+    async def send_chat_message(self, author: str, text: str):
+        """Public method to send a chat message."""
+        if not text:
+            return
+        message = {
+            "author": author or f"Node-{self.node_id[:6]}",
+            "text": text,
+            "ts": int(time.time())
+        }
+        # Store message that needs to be sent, and trigger the update process
+        self._pending_chat_message = message
+        self.session.dht_get_item(self.chat_keys.public_key, CHAT_SALT)
+        logger.info(f"Chat: Queued message for sending: {message}")
+
+    def _handle_dht_get_reply(self, item):
+        """Callback for when dht_get_item returns."""
+        chat_data = []
+        if item:
+            try:
+                chat_data = lt.bdecode(item.value())
+                self._last_chat_seq = item.seq
+                # Update local history
+                new_messages = [msg for msg in chat_data if tuple(msg.items()) not in [tuple(m.items()) for m in self.chat_history]]
+                for msg in new_messages:
+                    self.chat_history.appendleft(msg)
+                    self.chat_queue.put_nowait(msg)
+            except Exception as e:
+                logging.error(f"Chat: Failed to decode DHT item: {e}")
+        
+        # If a message is pending, append it and put it back to DHT
+        if self._pending_chat_message:
+            logging.info("Chat: Got DHT reply, now putting updated item.")
+            chat_data.append(self._pending_chat_message)
+            
+            # Keep history trimmed
+            while len(chat_data) > 100:
+                chat_data.pop(0)
+
+            encoded_data = lt.bencode(chat_data)
+            self._pending_chat_message = None # Clear pending message
+            self.session.dht_put_item(
+                self.chat_keys.public_key,
+                CHAT_SALT,
+                encoded_data,
+                self.chat_keys.secret_key,
+                seq=self._last_chat_seq + 1,
+            )
+        
+    def _handle_dht_put_reply(self, item, num_success):
+        """Callback for when dht_put_item completes."""
+        if num_success > 0:
+            logging.info(f"Chat: Successfully put item to DHT on {num_success} nodes.")
+            # We can re-fetch to confirm, or trust the periodic fetch
+        else:
+            logging.error("Chat: Failed to put item to DHT. It might be stale, will retry on next send/fetch.")
+    
+    async def _periodic_chat_fetch(self):
+        while self.session.is_valid():
+            logging.info("Chat: Performing periodic fetch of chat history.")
+            self.session.dht_get_item(self.chat_keys.public_key, CHAT_SALT)
+            await asyncio.sleep(30) # Fetch every 30 seconds
+
+    async def _stop_session(self):
+        self.session.pause()
+        alert_task = self.loop.create_task(self.wait_for_alerts())
 
 
 # CLI точка входа
