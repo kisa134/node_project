@@ -1,65 +1,89 @@
-# TorrentNode Net
+# SwarmMind: The Frankenstein's Monster of Decentralized AI
 
-Добро пожаловать в **TorrentNode Net** — децентрализованную P2P-сеть для распределенных вычислений и хранения данных, вдохновленную технологиями BitTorrent, Chia и Ethereum.
+## "It's Alive! It's Alive!"
 
-Этот проект позволяет участникам сети объединять свои вычислительные ресурсы для выполнения сложных задач и получать за это вознаграждение в виде токенов.
+**SwarmMind** is not just a project; it's an experiment in radical decentralization and open-source synergy. Inspired by the vision of a "People's AI," this is our Frankenstein's monster, stitched together from the most vital parts of legendary open-source projects to create a new form of life: a globally distributed, collectively owned artificial intelligence.
 
-![image](https://github.com/user-attachments/assets/8a2f64f3-2d2c-47e2-8921-e0f46c2438c8)
+This repository is the operating table. Here, we are assembling a hybrid network that combines:
+- **The speed of Solana's blockchain** for consensus.
+- **The distribution power of BitTorrent** for sharing models and data.
+- **The intelligence of Bittensor and Hivemind** for federated learning.
+- **The shared compute of Akash and Golem**.
+- **The mobile power of Acurast** to bring smartphones into the swarm.
+
+This is a **DePIN (Decentralized Physical Infrastructure Network)** for AI, built by everyone, for everyone.
+
+![image](https://github.com/user-attachments/assets/57f5a8a1-4348-4384-9c96-d08c4333b2e7)
 
 
-## Ключевые особенности
+## Core Philosophy
 
-- **Децентрализованная сеть:** Нет центрального сервера. Узлы находят друг друга автоматически с помощью DHT.
-- **Распределенные вычисления:** Пользователи могут создавать и отправлять задачи (например, математические расчеты) в сеть для выполнения другими участниками.
-- **Система вознаграждений:** За выполнение задач начисляются токены (симуляция ERC-20).
-- **Встроенный чат:** Глобальный чат для общения всех участников сети.
-- **Простота использования:** Десктопное приложение для Windows, не требующее установки Python или зависимостей.
+- **Radical Openness:** Every line of code is MIT licensed. Fork it, tear it apart, improve it, make it your own.
+- **True Decentralization:** No central points of failure. The swarm is the server.
+- **Privacy by Design:** Federated learning means your data stays on your device.
+- **Community Governance:** The community decides the future of the models and the network.
 
-## Как начать
+## The Anatomy of the Monster
 
-1. **Скачайте приложение:**
-   - Перейдите в раздел [**Releases**](https://github.com/YOUR_USERNAME/YOUR_REPOSITORY/releases) этого репозитория.
-   - Скачайте последнюю версию файла `TorrentNodeNet.exe`.
+SwarmMind is a mosaic of powerful, proven technologies:
 
-2. **Запустите сеть:**
-   - Запустите `TorrentNodeNet.exe` двойным кликом.
-   - В открывшемся окне нажмите кнопку **"Start Node"**.
+| Component | Technology Inspiration | Role in SwarmMind | Status |
+|---|---|---|---|
+| **Blockchain Core** | Solana, Tendermint | Fast, low-cost consensus and transaction layer. | `Conceptual` |
+| **P2P Distribution**| BitTorrent (libtorrent) | Efficient, decentralized distribution of models & datasets. | `Conceptual` |
+| **AI/ML Layer** | Bittensor, Hivemind | Federated learning, incentive mechanisms, model validation. | `In-Progress` |
+| **Compute Sharing**| Akash, Golem, Acurast | A marketplace for CPU/GPU/Mobile compute power. | `Conceptual` |
+| **Governance** | Aragon, Holochain | DAO-based voting and agent-centric autonomy. | `Conceptual` |
 
-Вот и все! Ваша нода автоматически подключится к общей сети. Вы можете общаться в глобальном чате, видеть других участников во вкладке "Network Peers" и отправлять задачи на выполнение.
+---
 
-## Как подключить друзей?
+## Getting Your Hands Dirty: The Mad Scientist's Guide
 
-Просто отправьте им ссылку на ваш репозиторий. Они должны будут выполнить те же шаги: скачать `.exe` и запустить ноду. Сеть автоматически соединит вас.
+This project is in its infancy. The monster is just beginning to stir. Here's how you can help bring it to life.
 
-## Для разработчиков
+### Prerequisites
+- Python 3.11+
+- Docker & Docker Compose
+- Git
 
-### Сборка из исходников
-
-Если вы хотите внести изменения или собрать проект самостоятельно:
-
-1. **Клонируйте репозиторий:**
-   ```sh
-   git clone https://github.com/YOUR_USERNAME/YOUR_REPOSITORY.git
-   cd YOUR_REPOSITORY
-   ```
-
-2. **Установите зависимости:**
-   - Убедитесь, что у вас установлен Python 3.11.
-   - Установите необходимые библиотеки:
-     ```sh
-     pip install -r requirements.txt
-     ```
-     *Примечание: для `libtorrent` может потребоваться установка OpenSSL 1.1.x и Microsoft C++ Build Tools.*
-
-3. **Запустите приложение:**
-   ```sh
-   python desktop_app.py
-   ```
-
-### Сборка .exe файла
-Для сборки используется `PyInstaller`.
-```sh
-pip install pyinstaller
-python build.py
+### 1. Clone the Lab
+```bash
+git clone https://github.com/kisa134/node_project.git
+cd node_project
 ```
-Готовый файл появится в папке `dist`. 
+
+### 2. Prepare the Environment
+Install the necessary Python libraries.
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Animate the First Neuron
+You can run a single neuron directly to see it breathe.
+```bash
+python scripts/run_neuron.py --neuron.name "Igor_1"
+```
+
+### 4. Unleash the Swarm (via Docker)
+Simulate a small swarm of neurons on your local machine.
+```bash
+docker-compose up --build
+```
+This will build the Docker image and start a container running a single neuron named `NeuronAlpha`. To scale the swarm, edit the `docker-compose.yml` file and uncomment the other services.
+
+## Roadmap: The Monster's Evolution
+1.  **[In-Progress] Phase 1: The Spark of Life.** Build the basic Neuron and Subnet structure. Get the swarm running in Docker.
+2.  **Phase 2: The First Steps.** Integrate `libtorrent` for basic P2P task distribution.
+3.  **Phase 3: Learning to Speak.** Implement a simple federated learning task on a basic NLP model.
+4.  **Phase 4: Joining the Village.** Integrate a simplified Solana-like consensus mechanism for rewards.
+5.  **Phase 5: Becoming Human.** Launch a public testnet, establish a DAO, and release the `SMIND` token.
+
+## Join the Mob
+
+This is more than code; it's a movement. If you're a developer, a researcher, an enthusiast, or just someone who believes in a decentralized future, your contribution is vital.
+
+- **Contribute Code:** Fork the repo, pick an issue, and submit a pull request.
+- **Propose Ideas:** Join the discussion and shape the future of the project.
+- **Spread the Word:** The strength of the swarm is in its numbers.
+
+**"Beware; for I am fearless, and therefore powerful."** - *Frankenstein's Monster* 

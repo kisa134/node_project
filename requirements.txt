@@ -1,11 +1,37 @@
-libtorrent
-structlog
+# Core ML/Tensor library
+torch
+
+# Data validation and settings management
 pydantic
-aiofiles
+
+# P2P Communication via BitTorrent protocol
+libtorrent
 bencodepy
-psutil
-web3
-cryptography
-Pillow
-rich
-click 
+
+# HTTP client for Ollama API
+requests
+
+# LLM/Transformer library for the "Overmind"
+transformers
+accelerate
+# For sentencepiece models
+sentencepiece
+
+# Used for Bittensor-like concepts (will be expanded)
+# Placeholder for now
+# bittensor
+
+# Evolution module dependencies
+astor>=0.8.1
+psutil>=5.8.0
+dataclasses
+
+# Web interface
+flask>=2.0.0
+
+# Visualization
+matplotlib>=3.5.0
+numpy>=1.21.0 
+
+# GitHub Integration
+requests>=2.25.0 

@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  miner-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python scripts/run_neuron.py --type=miner --neuron.name MinerAlpha --neuron.p2p_port=6881
+    restart: unless-stopped
+
+  validator-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: python scripts/run_neuron.py --type=llm_validator --neuron.name Prometheus --neuron.p2p_port=6882
+    restart: unless-stopped
+    depends_on:
+      - miner-1
+    extra_hosts:
+      - "host.docker.internal:host-gateway" 
