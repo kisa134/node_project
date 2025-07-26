@@ -1,54 +1,40 @@
 import logging
-import threading
-import time
-from datetime import datetime
+import sys
+import os
 
-LOG_FILE = 'swarmmind_events.log'
+def setup_logger(name, level=logging.INFO):
+    """Настройка логгера с поддержкой Windows"""
+    
+    # Создаем форматтер без эмодзи для Windows
+    if os.name == 'nt':  # Windows
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+    else:
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+    
+    # Создаем логгер
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    
+    # Очищаем существующие обработчики
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    
+    # Создаем обработчик для консоли
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    # Создаем обработчик для файла
+    file_handler = logging.FileHandler('swarmmind.log', encoding='utf-8')
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    
+    return logger
 
-class SwarmMindLogger:
-    _instance = None
-    _lock = threading.Lock()
-
-    def __new__(cls):
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = super().__new__(cls)
-                cls._instance._init_logger()
-            return cls._instance
-
-    def _init_logger(self):
-        self.logger = logging.getLogger('SwarmMindLogger')
-        self.logger.setLevel(logging.INFO)
-        fh = logging.FileHandler(LOG_FILE, encoding='utf-8')
-        formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
-        fh.setFormatter(formatter)
-        self.logger.addHandler(fh)
-        self.subscribers = []  # Для AI-аналитики
-
-    def log(self, message, level=logging.INFO):
-        self.logger.log(level, message)
-        self._notify_subscribers(message, level)
-
-    def _notify_subscribers(self, message, level):
-        for callback in self.subscribers:
-            try:
-                callback(message, level)
-            except Exception:
-                pass
-
-    def subscribe(self, callback):
-        self.subscribers.append(callback)
-
-    def get_recent_events(self, n=100):
-        try:
-            with open(LOG_FILE, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-            return lines[-n:]
-        except Exception:
-            return []
-
-# Глобальный логгер
-swarm_logger = SwarmMindLogger()
-
-# Быстрая функция для логирования
-log_event = lambda msg, level=logging.INFO: swarm_logger.log(msg, level) 
+def get_logger(name):
+    """Получить существующий логгер"""
+    return logging.getLogger(name) 

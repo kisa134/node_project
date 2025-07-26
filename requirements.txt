@@ -22,17 +22,18 @@ sentencepiece
 # bittensor
 
 # Evolution module dependencies
-astor>=0.8.1
-psutil>=5.8.0
+astor==0.8.1
+psutil==5.9.5
 dataclasses
 
 # Web interface
-flask>=2.0.0
+flask==2.3.3
+flask-socketio==5.3.6
 
 # Visualization
-matplotlib>=3.5.0
-numpy>=1.21.0 
+matplotlib==3.7.2
+numpy==1.24.3 
 
 # GitHub Integration
-requests>=2.25.0
-python-dotenv>=0.19.0 
+requests==2.31.0
+python-dotenv==1.0.0 
