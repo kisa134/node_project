@@ -262,9 +262,13 @@ class GitHubIntegration:
 # Пример использования
 def setup_github_integration():
     """Настройка GitHub интеграции"""
+    # Загружаем переменные из .env файла
+    from dotenv import load_dotenv
+    load_dotenv()
+    
     token = os.getenv('GITHUB_TOKEN')
-    repo_owner = os.getenv('GITHUB_REPO_OWNER', 'your-username')
-    repo_name = os.getenv('GITHUB_REPO_NAME', 'swarmmind')
+    repo_owner = os.getenv('GITHUB_REPO_OWNER', 'kisa134')
+    repo_name = os.getenv('GITHUB_REPO_NAME', 'node_project')
     
     if not token:
         log_event("GitHub token not found. Set GITHUB_TOKEN environment variable.")
