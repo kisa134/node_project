@@ -46,8 +46,18 @@ class WorkingSwarmMind:
             'code_generator': {'status': 'active', 'description': 'Генератор кода - создание нового кода'},
             'self_improver': {'status': 'active', 'description': 'Самоулучшение - оптимизация алгоритмов'},
             'evolutionary_neuron': {'status': 'active', 'description': 'Эволюционный нейрон - развитие системы'},
-            'p2p_network': {'status': 'active', 'description': 'P2P сеть - распределенная коммуникация'}
+            'p2p_network': {'status': 'active', 'description': 'P2P сеть - распределенная коммуникация'},
+            'github_self_improvement': {'status': 'active', 'description': 'GitHub самоулучшение - автономные PR'}
         }
+        
+        # Инициализация системы самоулучшения
+        try:
+            from swarm_mind.github_self_improvement import GitHubSelfImprovementSystem
+            self.github_improvement = GitHubSelfImprovementSystem()
+            logger.info("GitHub система самоулучшения инициализирована")
+        except Exception as e:
+            logger.error(f"Ошибка инициализации GitHub самоулучшения: {e}")
+            self.github_improvement = None
         
         logger.info("WorkingSwarmMind инициализирован")
         
@@ -317,6 +327,8 @@ HTML_TEMPLATE = '''
         
         <div class="controls">
             <button class="control-btn" onclick="evolve()">Запустить эволюцию</button>
+            <button class="control-btn" onclick="startSelfImprovement()">🚀 Запустить самоулучшение</button>
+            <button class="control-btn" onclick="stopSelfImprovement()">🛑 Остановить самоулучшение</button>
             <button class="control-btn" onclick="refreshStatus()">Обновить статус</button>
             <button class="control-btn" onclick="resetSystem()">Сброс системы</button>
         </div>
@@ -402,6 +414,34 @@ HTML_TEMPLATE = '''
             }
         }
         
+        function startSelfImprovement() {
+            if (confirm('🚀 Запустить систему самоулучшения?\n\nСистема будет:\n- Анализировать код\n- Планировать улучшения\n- Создавать GitHub PR')) {
+                fetch('/api/start_self_improvement', {method: 'POST'})
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            alert('🚀 Система самоулучшения запущена!\n\nКомпоненты:\n- CodeAnalyzerAgent\n- TaskPlannerAgent\n- CodeExecutorAgent');
+                        } else {
+                            alert('❌ Ошибка: ' + data.message);
+                        }
+                    });
+            }
+        }
+        
+        function stopSelfImprovement() {
+            if (confirm('🛑 Остановить систему самоулучшения?')) {
+                fetch('/api/stop_self_improvement', {method: 'POST'})
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            alert('🛑 Система самоулучшения остановлена!');
+                        } else {
+                            alert('❌ Ошибка: ' + data.message);
+                        }
+                    });
+            }
+        }
+        
         function sendMessage() {
             const input = document.getElementById('message-input');
             const message = input.value.trim();
@@ -473,6 +513,55 @@ def api_status():
 def api_evolve():
     result = swarmmind.evolve()
     return jsonify(result)
+
+@app.route('/api/start_self_improvement', methods=['POST'])
+def api_start_self_improvement():
+    """API для запуска системы самоулучшения"""
+    try:
+        if swarmmind.github_improvement:
+            # Запускаем в отдельном потоке
+            def run_improvement():
+                asyncio.run(swarmmind.github_improvement.start_improvement_cycle())
+            
+            thread = threading.Thread(target=run_improvement, daemon=True)
+            thread.start()
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'Система самоулучшения запущена',
+                'components': ['CodeAnalyzerAgent', 'TaskPlannerAgent', 'CodeExecutorAgent']
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'GitHub система самоулучшения не инициализирована'
+            })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Ошибка запуска самоулучшения: {str(e)}'
+        })
+
+@app.route('/api/stop_self_improvement', methods=['POST'])
+def api_stop_self_improvement():
+    """API для остановки системы самоулучшения"""
+    try:
+        if swarmmind.github_improvement:
+            swarmmind.github_improvement.stop_improvement_cycle()
+            return jsonify({
+                'status': 'success',
+                'message': 'Система самоулучшения остановлена'
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'GitHub система самоулучшения не инициализирована'
+            })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Ошибка остановки самоулучшения: {str(e)}'
+        })
 
 @app.route('/api/reset', methods=['POST'])
 def api_reset():
